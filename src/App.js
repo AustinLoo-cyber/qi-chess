@@ -95,6 +95,21 @@ const App = () => {
   const [isPlayOnlineOpen, setIsPlayOnlineOpen] = useState(false);
   const [onlineRoom, setOnlineRoom] = useState(null); // { roomId, color, uid } once matched, else null
 
+  // Board orientation. Manually toggleable via the flip button, and
+  // automatically set to match your color once matched into an online game
+  // (so you always see your own pieces at the bottom, like Lichess).
+  const [boardFlipped, setBoardFlipped] = useState(false);
+  useEffect(() => {
+    if (onlineRoom) {
+      setBoardFlipped(onlineRoom.color === 'b');
+    }
+  }, [onlineRoom]);
+
+  // Converts a model (actual game) row/col into the visual position it's
+  // rendered at, accounting for the current flip state.
+  const toVisualRow = (row) => (boardFlipped ? BOARD_ROWS - 1 - row : row);
+  const toVisualCol = (col) => (boardFlipped ? BOARD_COLS - 1 - col : col);
+
   const handleMatched = (roomId, color, uid) => {
     setOnlineRoom({ roomId, color, uid });
     setIsPlayOnlineOpen(false);
@@ -165,8 +180,12 @@ const App = () => {
         const finalX = currentMousePos.x - boardRect.left;
         const finalY = currentMousePos.y - boardRect.top;
 
-        const calculatedEndCol = Math.floor(finalX / squareSizePx);
-        const calculatedEndRow = Math.floor(finalY / squareSizePx);
+        const visualEndCol = Math.floor(finalX / squareSizePx);
+        const visualEndRow = Math.floor(finalY / squareSizePx);
+        // The pixel position tells us the visual grid slot, which needs to be
+        // converted back to the actual board coordinate when flipped.
+        const calculatedEndCol = boardFlipped ? BOARD_COLS - 1 - visualEndCol : visualEndCol;
+        const calculatedEndRow = boardFlipped ? BOARD_ROWS - 1 - visualEndRow : visualEndRow;
 
         if (selectedPiece && startSquare) {
             if (calculatedEndRow >= 0 && calculatedEndRow < BOARD_ROWS &&
@@ -219,7 +238,7 @@ const App = () => {
     setIsDragging(false);
     // Clear legal moves when the drag is finished
     setLegalMoves([]);
-  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, squareSizePx, currentMoveIndex, boardHistory, onlineRoom]);
+  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, squareSizePx, currentMoveIndex, boardHistory, onlineRoom, boardFlipped]);
 
   // Event handler for mouse down on a square
   const handleMouseDown = (pieceChar, rowIndex, colIndex, event) => {
@@ -671,7 +690,7 @@ const performBotMove = useCallback(async (currentGame) => {
         </div>
         
         {/* New flex container for the eval bar and board */}
-        <div className="flex flex-row items-center space-x-1 sm:space-x-4">
+        <div className="flex flex-row items-center space-x-1 sm:space-x-4 relative">
             {/* The evaluation bar is now a direct child of this flex container */}
             <EvalBar score={evaluationScore} squareSizeCss={SQUARE_SIZE_CSS} boardRows={BOARD_ROWS} />
             
@@ -686,9 +705,12 @@ const performBotMove = useCallback(async (currentGame) => {
                     height: `min-content`,
                 }}
             >
-                {/* Render the board squares and pieces */}
-                {board.map((row, rowIndex) => (
-                    row.map((pieceChar, colIndex) => {
+                {/* Render the board squares and pieces, in visual order (accounting for flip) */}
+                {[...Array(BOARD_ROWS).keys()].map((visRowIdx) => {
+                    const rowIndex = boardFlipped ? BOARD_ROWS - 1 - visRowIdx : visRowIdx;
+                    return [...Array(BOARD_COLS).keys()].map((visColIdx) => {
+                        const colIndex = boardFlipped ? BOARD_COLS - 1 - visColIdx : visColIdx;
+                        const pieceChar = board[rowIndex][colIndex];
                         // Determine square color based on the board sections
                         let squareColorClass = '';
 
@@ -757,8 +779,8 @@ const performBotMove = useCallback(async (currentGame) => {
                                     touchAction: 'none', // prevents the browser from also trying to scroll/zoom during a drag
                                 }}
                             >
-                                {/* 1. Row Numbers (top left, left-most column) */}
-                                {colIndex === 0 && (
+                                {/* 1. Row Numbers (visually top-left corner of the board) */}
+                                {visColIdx === 0 && (
                                     <div
                                         className="absolute top-0 left-0 p-0.5 text-gray-600 font-sans z-10"
                                         style={{ fontSize: `calc(${SQUARE_SIZE_CSS} * 0.22)` }}
@@ -767,8 +789,8 @@ const performBotMove = useCallback(async (currentGame) => {
                                     </div>
                                 )}
 
-                                {/* 2. Column Letters (bottom right, bottom-most row) */}
-                                {rowIndex === BOARD_ROWS - 1 && (
+                                {/* 2. Column Letters (visually bottom-right corner of the board) */}
+                                {visRowIdx === BOARD_ROWS - 1 && (
                                     <div
                                         className="absolute bottom-0 right-0 p-0.5 text-gray-600 font-sans z-10"
                                         style={{ fontSize: `calc(${SQUARE_SIZE_CSS} * 0.22)` }}
@@ -810,8 +832,8 @@ const performBotMove = useCallback(async (currentGame) => {
                                 )}
                             </div>
                         );
-                    })
-                )).flat()} {/* Flatten the array of arrays to fix React child error */}
+                    });
+                }).flat()} {/* Flatten the array of arrays to fix React child error */}
                 {/* Promotion UI Overlay */}
                 {promotionSquare && (
                   <div className="absolute inset-0 bg-black bg-opacity-40 z-50 flex">
@@ -819,7 +841,7 @@ const performBotMove = useCallback(async (currentGame) => {
                     <div
                       className="flex flex-col space-y-2 p-2 bg-gray-800 bg-opacity-90 rounded-r-xl shadow-xl"
                       style={{
-                        marginLeft: `calc(${SQUARE_SIZE_CSS} * ${promotionSquare.col})`,
+                        marginLeft: `calc(${SQUARE_SIZE_CSS} * ${toVisualCol(promotionSquare.col)})`,
                         justifyContent: promotionSquare.color === 'w' ? 'flex-start' : 'flex-end',
                         height: '100%',
                       }}
@@ -877,6 +899,22 @@ const performBotMove = useCallback(async (currentGame) => {
                     })()}
                 </div>
             </div>
+
+            {/* Flip board button — sits just outside the board's bottom-right corner,
+                mirroring how the eval bar sits just outside on the left. */}
+            <button
+                onClick={() => setBoardFlipped((f) => !f)}
+                className="absolute -bottom-9 sm:-bottom-11 right-0 bg-gray-700 hover:bg-gray-600 text-white rounded-full shadow-lg flex items-center justify-center transition z-30"
+                style={{
+                    width: `calc(${SQUARE_SIZE_CSS} * 0.75)`,
+                    height: `calc(${SQUARE_SIZE_CSS} * 0.75)`,
+                    fontSize: `calc(${SQUARE_SIZE_CSS} * 0.4)`,
+                }}
+                aria-label="Flip board"
+                title="Flip board"
+            >
+                ⇅
+            </button>
         </div>
         <div className="mt-3 sm:mt-6 flex flex-wrap justify-center gap-2 sm:gap-4 sm:space-x-0">
           <button
