@@ -1,18 +1,18 @@
 {
   "files": {
     "main.css": "/qi-chess/static/css/main.3de6713f.css",
-    "main.js": "/qi-chess/static/js/main.76f30c5a.js",
-    "static/js/610.77b722b5.chunk.js": "/qi-chess/static/js/610.77b722b5.chunk.js",
+    "main.js": "/qi-chess/static/js/main.da49fc5b.js",
+    "static/js/610.5ecd5754.chunk.js": "/qi-chess/static/js/610.5ecd5754.chunk.js",
     "static/js/453.3749a94f.chunk.js": "/qi-chess/static/js/453.3749a94f.chunk.js",
     "static/media/black_chess_pawn.png": "/qi-chess/static/media/black_chess_pawn.965955eddf42bc26f593.png",
     "index.html": "/qi-chess/index.html",
     "main.3de6713f.css.map": "/qi-chess/static/css/main.3de6713f.css.map",
-    "main.76f30c5a.js.map": "/qi-chess/static/js/main.76f30c5a.js.map",
-    "610.77b722b5.chunk.js.map": "/qi-chess/static/js/610.77b722b5.chunk.js.map",
+    "main.da49fc5b.js.map": "/qi-chess/static/js/main.da49fc5b.js.map",
+    "610.5ecd5754.chunk.js.map": "/qi-chess/static/js/610.5ecd5754.chunk.js.map",
     "453.3749a94f.chunk.js.map": "/qi-chess/static/js/453.3749a94f.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.3de6713f.css",
-    "static/js/main.76f30c5a.js"
+    "static/js/main.da49fc5b.js"
   ]
 }
