@@ -3,6 +3,7 @@ import { ChessGame, BOARD_ROWS, BOARD_COLS, RIVER_ROW_INDEX } from "./game";
 import { getBotMove } from "./bot";
 import EvalBar from "./EvalBar";
 import PlayOnlineModal from "./PlayOnlineModal";
+import { listenToRoom, submitMoveToRoom, deserializeBoard, deserializeBoardHistory } from "./multiplayer";
 import blackPawnImage from './assets/black_chess_pawn.png';
 
 // Main App component
@@ -97,9 +98,35 @@ const App = () => {
   const handleMatched = (roomId, color, uid) => {
     setOnlineRoom({ roomId, color, uid });
     setIsPlayOnlineOpen(false);
-    // NOTE: this only confirms the match for now — syncing actual moves
-    // between players is the next phase.
   };
+
+  // Subscribes to the online room once matched, and applies the opponent's
+  // moves to the local board whenever the room document changes. This is
+  // the "remote -> local" half of the sync; submitMoveToRoom (used inside
+  // handleMouseUp) is the "local -> remote" half.
+  useEffect(() => {
+    if (!onlineRoom) return;
+    const unsubscribe = listenToRoom(onlineRoom.roomId, (data) => {
+      const remoteBoard = deserializeBoard(data.board);
+      const remoteHistory = deserializeBoardHistory(data.boardHistory);
+
+      // Keep the mutable game instance in sync too, since move validation
+      // (game.getLegalMoves, game.makeMove) reads from it directly.
+      game.board = remoteBoard.map((row) => [...row]);
+      game.turn = data.turn;
+      game.statusMessage = data.statusMessage;
+      game.isGameOverFlag = data.status === "finished";
+
+      setBoard(remoteBoard.map((row) => [...row]));
+      setBoardHistory(remoteHistory);
+      setCurrentMoveIndex(data.currentMoveIndex);
+      setTurn(data.turn);
+      setStatusMessage(data.statusMessage);
+      setGameOver(data.status === "finished");
+    });
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlineRoom]);
 
   // Extracts {x, y} client coordinates from either a mouse event or a touch event,
   // so the same drag logic can drive both desktop and mobile interactions.
@@ -149,8 +176,23 @@ const App = () => {
                 
                 if (moved) {
                   // Update board history after a successful move
-                  setBoardHistory(prev => [...prev, game.board.map(row => [...row])]);
-                  setCurrentMoveIndex(prev => prev + 1);
+                  const newBoardHistory = [...boardHistory, game.board.map(row => [...row])];
+                  const newMoveIndex = currentMoveIndex + 1;
+                  setBoardHistory(newBoardHistory);
+                  setCurrentMoveIndex(newMoveIndex);
+
+                  // If this is an online game, push the move to Firestore so
+                  // the opponent's board updates in real time.
+                  if (onlineRoom) {
+                    submitMoveToRoom(onlineRoom.roomId, {
+                      board: game.board,
+                      boardHistory: newBoardHistory,
+                      currentMoveIndex: newMoveIndex,
+                      turn: game.turn,
+                      statusMessage: game.statusMessage,
+                      gameOver: game.isGameOverFlag,
+                    }).catch((err) => console.error("Failed to sync move online:", err));
+                  }
                 }
                 // Check if promotion is pending
                 if (game.pendingPromotion) {
@@ -177,7 +219,7 @@ const App = () => {
     setIsDragging(false);
     // Clear legal moves when the drag is finished
     setLegalMoves([]);
-  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, squareSizePx, currentMoveIndex]);
+  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, squareSizePx, currentMoveIndex, boardHistory, onlineRoom]);
 
   // Event handler for mouse down on a square
   const handleMouseDown = (pieceChar, rowIndex, colIndex, event) => {
@@ -186,7 +228,19 @@ const App = () => {
         return;
     }
 
+    // In an online game, you can only ever pick up your own color's pieces,
+    // and only when it's actually your turn.
+    if (onlineRoom && onlineRoom.color !== game.turn) {
+      setStatusMessage("Waiting for your opponent's move...");
+      return;
+    }
+
     const pieceColor = game.getPieceColor(pieceChar);
+    if (onlineRoom && pieceChar !== ' ' && pieceColor !== onlineRoom.color) {
+      setStatusMessage("You can only move your own pieces.");
+      return;
+    }
+
     if (pieceChar !== ' ' && pieceColor === game.turn) {
       setSelectedPiece({ piece: pieceChar, row: rowIndex, col: colIndex });
       setStartSquare({ row: rowIndex, col: colIndex });
@@ -878,8 +932,7 @@ const performBotMove = useCallback(async (currentGame) => {
 
         {onlineRoom && (
           <div className="mt-3 text-teal-400 text-xs sm:text-sm text-center">
-            Connected to room {onlineRoom.roomId} as {onlineRoom.color === 'w' ? 'White' : 'Black'}.
-            (Move syncing coming in the next step — this just confirms matchmaking works.)
+            Playing online in room {onlineRoom.roomId} as {onlineRoom.color === 'w' ? 'White' : 'Black'}.
           </div>
         )}
 
