@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { ChessGame, BOARD_ROWS, BOARD_COLS, RIVER_ROW_INDEX } from "./game";
 import { getBotMove } from "./bot";
 import EvalBar from "./EvalBar";
+import PlayOnlineModal from "./PlayOnlineModal";
 import blackPawnImage from './assets/black_chess_pawn.png';
 
 // Main App component
@@ -88,6 +89,17 @@ const App = () => {
 
   // State for pawn/soldier promotion
   const [promotionSquare, setPromotionSquare] = useState(null);
+
+  // --- Online multiplayer state ---
+  const [isPlayOnlineOpen, setIsPlayOnlineOpen] = useState(false);
+  const [onlineRoom, setOnlineRoom] = useState(null); // { roomId, color, uid } once matched, else null
+
+  const handleMatched = (roomId, color, uid) => {
+    setOnlineRoom({ roomId, color, uid });
+    setIsPlayOnlineOpen(false);
+    // NOTE: this only confirms the match for now — syncing actual moves
+    // between players is the next phase.
+  };
 
   // Extracts {x, y} client coordinates from either a mouse event or a touch event,
   // so the same drag logic can drive both desktop and mobile interactions.
@@ -853,9 +865,33 @@ const performBotMove = useCallback(async (currentGame) => {
           >
             Pause
           </button>
+          <button
+            onClick={() => setIsPlayOnlineOpen(true)}
+            className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-teal-600 text-white font-bold rounded-md shadow-lg
+                      hover:bg-teal-700 transition duration-300 ease-in-out
+                      focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-75"
+            aria-label="Play Online"
+          >
+            Play Online
+          </button>
         </div>
+
+        {onlineRoom && (
+          <div className="mt-3 text-teal-400 text-xs sm:text-sm text-center">
+            Connected to room {onlineRoom.roomId} as {onlineRoom.color === 'w' ? 'White' : 'Black'}.
+            (Move syncing coming in the next step — this just confirms matchmaking works.)
+          </div>
+        )}
+
+        {isPlayOnlineOpen && (
+          <PlayOnlineModal
+            onClose={() => setIsPlayOnlineOpen(false)}
+            onMatched={handleMatched}
+          />
+        )}
+
         <p className="text-gray-400 mt-3 sm:mt-6 text-xs sm:text-sm text-center max-w-xs sm:max-w-none">
-          Two different armies. One battlefield.
+          This is a custom chess-like interface with draggable pieces and simplified game logic. It now attempts to implement full stalemate rules conceptually. For a robust and comprehensive chess engine, using a dedicated library like chess.js is highly recommended.
         </p>
       </div>
       
