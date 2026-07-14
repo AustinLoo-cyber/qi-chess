@@ -991,7 +991,7 @@ const performBotMove = useCallback(async (currentGame) => {
         )}
 
         <p className="text-gray-400 mt-3 sm:mt-6 text-xs sm:text-sm text-center max-w-xs sm:max-w-none">
-          This is a custom chess-like interface with draggable pieces and simplified game logic. It now attempts to implement full stalemate rules conceptually. For a robust and comprehensive chess engine, using a dedicated library like chess.js is highly recommended.
+          Two different armies. One battlefied. A showdown between the East and West.
         </p>
       </div>
       
