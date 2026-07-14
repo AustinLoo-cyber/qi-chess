@@ -1,18 +1,18 @@
 {
   "files": {
     "main.css": "/qi-chess/static/css/main.ffbe4e8a.css",
-    "main.js": "/qi-chess/static/js/main.7a7b8d7b.js",
+    "main.js": "/qi-chess/static/js/main.4569b8d8.js",
     "static/js/610.5ecd5754.chunk.js": "/qi-chess/static/js/610.5ecd5754.chunk.js",
     "static/js/453.3749a94f.chunk.js": "/qi-chess/static/js/453.3749a94f.chunk.js",
     "static/media/black_chess_pawn.png": "/qi-chess/static/media/black_chess_pawn.965955eddf42bc26f593.png",
     "index.html": "/qi-chess/index.html",
     "main.ffbe4e8a.css.map": "/qi-chess/static/css/main.ffbe4e8a.css.map",
-    "main.7a7b8d7b.js.map": "/qi-chess/static/js/main.7a7b8d7b.js.map",
+    "main.4569b8d8.js.map": "/qi-chess/static/js/main.4569b8d8.js.map",
     "610.5ecd5754.chunk.js.map": "/qi-chess/static/js/610.5ecd5754.chunk.js.map",
     "453.3749a94f.chunk.js.map": "/qi-chess/static/js/453.3749a94f.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.ffbe4e8a.css",
-    "static/js/main.7a7b8d7b.js"
+    "static/js/main.4569b8d8.js"
   ]
 }
