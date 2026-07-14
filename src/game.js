@@ -338,9 +338,9 @@ class ChessGame {
         // Diagonal capture
         if (colDiff === 1 && toRow === fromRow + directionPawn && targetPiece !== ' ' && targetColor !== pieceColor) return true;
 
-        // Pawn special jump over river from row 4 to 6
+        // Pawn special jump over river from row 4 to 6 (forward move, not a capture)
         if (fromCol === toCol && fromRow === 4 && toRow === 6) {
-          if (boardState[RIVER_ROW_INDEX][fromCol] === ' ') return true;
+          if (boardState[RIVER_ROW_INDEX][fromCol] === ' ' && targetPiece === ' ') return true;
         }
         if (colDiff === 1 && fromRow === 4 && toRow === 6 && targetPiece !== ' ' && targetColor !== pieceColor) return true;
 

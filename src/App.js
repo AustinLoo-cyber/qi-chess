@@ -7,7 +7,8 @@ import blackPawnImage from './assets/black_chess_pawn.png';
 // Main App component
 const App = () => {
   // Define board size for the new layout (e.g., Xiangqi)
-  const SQUARE_SIZE_REM = 2.94; // Each square is 2.94rem x 2.94rem (2.8rem * 1.05 = 2.94rem)
+  // Responsive square size: scales fluidly with viewport width, capped between a min and max
+  const SQUARE_SIZE_CSS = 'clamp(1.2rem, 8vw, 2.94rem)';
 
   // Palace definitions moved to the top of the App component
   const eastPalaceMinRow = 8;
@@ -60,6 +61,20 @@ const App = () => {
   const boardRef = useRef(null);
   const draggablePieceRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Measures the actual rendered square size (in px) so drag/drop math stays accurate
+  // even though the square size itself is now fluid (CSS clamp) rather than fixed.
+  const [squareSizePx, setSquareSizePx] = useState(47); // fallback ~= 2.94rem at 16px root
+  useEffect(() => {
+    const measureSquareSize = () => {
+      if (boardRef.current) {
+        setSquareSizePx(boardRef.current.getBoundingClientRect().width / BOARD_COLS);
+      }
+    };
+    measureSquareSize();
+    window.addEventListener('resize', measureSquareSize);
+    return () => window.removeEventListener('resize', measureSquareSize);
+  }, []);
   const [isBotThinking, setIsBotThinking] = useState(false);
 
   // NEW: State for the rule book dropdown
@@ -74,10 +89,26 @@ const App = () => {
   // State for pawn/soldier promotion
   const [promotionSquare, setPromotionSquare] = useState(null);
 
-  // Event handler for mouse move (when dragging) - Memoized with useCallback
+  // Extracts {x, y} client coordinates from either a mouse event or a touch event,
+  // so the same drag logic can drive both desktop and mobile interactions.
+  const getEventCoords = (event) => {
+    if (event.touches && event.touches.length > 0) {
+      return { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    }
+    if (event.changedTouches && event.changedTouches.length > 0) {
+      return { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY };
+    }
+    return { x: event.clientX, y: event.clientY };
+  };
+
+  // Event handler for pointer move (when dragging) - Memoized with useCallback
+  // Pointer events unify mouse, touch, and stylus input into a single event type,
+  // which is what avoids the mouse-vs-touch inconsistencies on phones.
   const handleMouseMove = useCallback((event) => {
     if (isDragging && draggablePieceRef.current && boardRef.current) {
-      setCurrentMousePos({ x: event.clientX, y: event.clientY });
+      if (event.cancelable) event.preventDefault();
+      const { x, y } = getEventCoords(event);
+      setCurrentMousePos({ x, y });
 
       const boardRect = boardRef.current.getBoundingClientRect();
       const pieceWidth = draggablePieceRef.current.offsetWidth;
@@ -95,8 +126,8 @@ const App = () => {
         const finalX = currentMousePos.x - boardRect.left;
         const finalY = currentMousePos.y - boardRect.top;
 
-        const calculatedEndCol = Math.floor(finalX / (SQUARE_SIZE_REM * 16));
-        const calculatedEndRow = Math.floor(finalY / (SQUARE_SIZE_REM * 16));
+        const calculatedEndCol = Math.floor(finalX / squareSizePx);
+        const calculatedEndRow = Math.floor(finalY / squareSizePx);
 
         if (selectedPiece && startSquare) {
             if (calculatedEndRow >= 0 && calculatedEndRow < BOARD_ROWS &&
@@ -134,7 +165,7 @@ const App = () => {
     setIsDragging(false);
     // Clear legal moves when the drag is finished
     setLegalMoves([]);
-  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, SQUARE_SIZE_REM, currentMoveIndex]);
+  }, [selectedPiece, startSquare, game, isDragging, currentMousePos, BOARD_ROWS, BOARD_COLS, squareSizePx, currentMoveIndex]);
 
   // Event handler for mouse down on a square
   const handleMouseDown = (pieceChar, rowIndex, colIndex, event) => {
@@ -148,7 +179,8 @@ const App = () => {
       setSelectedPiece({ piece: pieceChar, row: rowIndex, col: colIndex });
       setStartSquare({ row: rowIndex, col: colIndex });
       setIsDragging(true);
-      setCurrentMousePos({ x: event.clientX, y: event.clientY });
+      const { x, y } = getEventCoords(event);
+      setCurrentMousePos({ x, y });
 
       // Get and store legal moves for the selected piece
       const allLegalMoves = game.getLegalMoves(game.turn);
@@ -188,16 +220,21 @@ const App = () => {
     }
   }, [isDragging, selectedPiece, currentMousePos, boardRef.current, draggablePieceRef.current]);
 
-  // Add global mouse move/up listeners for dragging outside the board
+  // Add global pointer move/up listeners for dragging outside the board.
+  // Pointer events cover mouse, touch, and stylus with one consistent API,
+  // which is how Lichess/chessground handle this same problem.
   useEffect(() => {
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handleMouseMove, { passive: false });
+    document.addEventListener('pointerup', handleMouseUp);
+    document.addEventListener('pointercancel', handleMouseUp); // e.g. an incoming call interrupts the drag
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handleMouseMove);
+      document.removeEventListener('pointerup', handleMouseUp);
+      document.removeEventListener('pointercancel', handleMouseUp);
     };
   }, [handleMouseMove, handleMouseUp]);
+
 
   const handleRestartGame = () => {
     const newGame = new ChessGame();
@@ -273,7 +310,15 @@ const performBotMove = useCallback(async (currentGame) => {
     setTurn(game.turn);
     setGameOver(game.isGameOverFlag);
     setIsBotThinking(false);
-    setEvaluationScore(score); // Update the evaluation score
+    // The score is from the perspective of whichever color the bot just played.
+    // EvalBar uses the convention that positive = White's advantage, so Black's
+    // score needs to be negated to display correctly (same rule as handleSelfPlay).
+    if (score !== undefined) {
+      const scoreToDisplay = game.turn === 'w' ? -score : score;
+      // game.turn has already flipped to the *other* side by this point, so the
+      // side that just moved is the opposite of game.turn.
+      setEvaluationScore(scoreToDisplay);
+    }
     setStatusMessage(newStatusMessage || game.statusMessage);
   }, [game, isBotThinking, currentMoveIndex, boardHistory.length, performBotMove]);
 
@@ -447,8 +492,8 @@ const performBotMove = useCallback(async (currentGame) => {
     }
 
     return (
-        <div className="absolute top-4 right-4 bg-gray-800 p-6 rounded-xl shadow-2xl text-white w-64 max-h-[95vh] overflow-y-auto custom-scrollbar">
-            <h2 className="text-2xl font-bold mb-4 border-b-2 border-gray-600 pb-2">Move History</h2>
+        <div className="relative w-full max-w-xs mt-4 sm:mt-0 sm:absolute sm:top-4 sm:right-4 sm:w-64 bg-gray-800 p-3 sm:p-6 rounded-xl shadow-2xl text-white max-h-40 sm:max-h-[95vh] overflow-y-auto custom-scrollbar text-sm sm:text-base">
+            <h2 className="text-lg sm:text-2xl font-bold mb-2 sm:mb-4 border-b-2 border-gray-600 pb-1 sm:pb-2">Move History</h2>
             <ol className="list-none text-gray-300 space-y-2">
                 {movePairs.map((pair, index) => (
                     <li key={index} className="flex space-x-4">
@@ -466,13 +511,13 @@ const performBotMove = useCallback(async (currentGame) => {
   
   return (
     // Changed main container to a flex row to accommodate the new sidebar
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 font-inter select-none relative">
+    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-2 sm:p-4 font-inter select-none relative">
       
       {/* Top-left button container */}
-      <div className="absolute top-4 left-4 z-50">
+      <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-50">
         <button
           onClick={() => setIsRuleBookOpen(!isRuleBookOpen)}
-          className="px-6 py-3 bg-blue-600 text-white font-bold rounded-md shadow-lg
+          className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-blue-600 text-white font-bold rounded-md shadow-lg
                      hover:bg-blue-700 transition duration-300 ease-in-out
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75"
         >
@@ -482,7 +527,7 @@ const performBotMove = useCallback(async (currentGame) => {
 
       {/* Rule Book Dropdown Container (appears on top of the board) */}
       {isRuleBookOpen && (
-        <div className="absolute top-16 left-4 z-40 bg-gray-800 p-6 rounded-xl shadow-2xl text-white w-96 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        <div className="absolute top-14 left-2 sm:top-16 sm:left-4 z-40 bg-gray-800 p-3 sm:p-6 rounded-xl shadow-2xl text-white w-56 sm:w-96 max-h-[80vh] overflow-y-auto custom-scrollbar text-sm sm:text-base">
           <h2 className="text-2xl font-bold mb-4 border-b-2 border-gray-600 pb-2">Game Rules: Qi-Chess</h2>
           <p className="text-gray-300 text-sm mb-4">
             This is a hybrid game combining elements of English Chess and Xiangqi.
@@ -553,24 +598,24 @@ const performBotMove = useCallback(async (currentGame) => {
       )}
 
       {/* Main Board and Game Info Container */}
-      <div className="flex flex-col items-center justify-center bg-gray-900 p-6 rounded-xl shadow-2xl">
-        <h1 className="text-4xl font-bold text-white mb-6">Qi-Chess</h1>
-        <div className="text-white text-xl mb-4 font-semibold">
+      <div className="flex flex-col items-center justify-center bg-gray-900 p-2 sm:p-6 rounded-xl shadow-2xl w-full">
+        <h1 className="text-2xl sm:text-4xl font-bold text-white mb-2 sm:mb-6">Qi-Chess</h1>
+        <div className="text-white text-sm sm:text-xl mb-2 sm:mb-4 font-semibold text-center">
           {statusMessage}
         </div>
         
         {/* New flex container for the eval bar and board */}
-        <div className="flex flex-row items-center space-x-4">
+        <div className="flex flex-row items-center space-x-1 sm:space-x-4">
             {/* The evaluation bar is now a direct child of this flex container */}
-            <EvalBar score={evaluationScore} />
+            <EvalBar score={evaluationScore} squareSizeCss={SQUARE_SIZE_CSS} boardRows={BOARD_ROWS} />
             
             {/* The board is also a direct child */}
             <div
                 ref={boardRef}
                 className={`grid gap-0 overflow-hidden border-4 border-gray-700 relative ${isDragging ? 'cursor-grabbing' : ''}`}
                 style={{
-                    gridTemplateColumns: `repeat(${BOARD_COLS}, ${SQUARE_SIZE_REM}rem)`,
-                    gridTemplateRows: `repeat(${BOARD_ROWS}, ${SQUARE_SIZE_REM}rem)`,
+                    gridTemplateColumns: `repeat(${BOARD_COLS}, ${SQUARE_SIZE_CSS})`,
+                    gridTemplateRows: `repeat(${BOARD_ROWS}, ${SQUARE_SIZE_CSS})`,
                     width: `min-content`,
                     height: `min-content`,
                 }}
@@ -630,30 +675,38 @@ const performBotMove = useCallback(async (currentGame) => {
                             <div
                                 key={`${rowIndex}-${colIndex}`}
                                 id={`square-${rowIndex}-${colIndex}`}
-                                className={`relative flex items-center justify-center text-xl font-bold rounded-none
+                                className={`relative flex items-center justify-center font-bold rounded-none
                                     ${squareColorClass}
                                     ${palaceBorderClasses}
                                     ${isMovablePiece && currentMoveIndex === boardHistory.length - 1 ? 'cursor-grab' : ''}
                                 `}
-                                onMouseDown={(event) => {
-                                    event.preventDefault(); // Prevent default browser drag behavior
+                                onPointerDown={(event) => {
+                                    if (pieceChar !== ' ') event.preventDefault(); // Prevent default browser drag/selection behavior
                                     handleMouseDown(pieceChar, rowIndex, colIndex, event);
                                 }}
-                                // No onMouseUp for individual squares. Global document listener handles all drops.
+                                // No onPointerUp for individual squares. Global document listener handles all drops.
                                 style={{
-                                    borderRadius: '0px' // Ensure no rounded corners on individual squares
+                                    borderRadius: '0px', // Ensure no rounded corners on individual squares
+                                    fontSize: `calc(${SQUARE_SIZE_CSS} * 0.55)`, // piece symbol scales with square
+                                    touchAction: 'none', // prevents the browser from also trying to scroll/zoom during a drag
                                 }}
                             >
                                 {/* 1. Row Numbers (top left, left-most column) */}
                                 {colIndex === 0 && (
-                                    <div className="absolute top-0 left-0 p-0.5 text-xs text-gray-600 font-sans z-10">
+                                    <div
+                                        className="absolute top-0 left-0 p-0.5 text-gray-600 font-sans z-10"
+                                        style={{ fontSize: `calc(${SQUARE_SIZE_CSS} * 0.22)` }}
+                                    >
                                         {BOARD_ROWS - rowIndex}
                                     </div>
                                 )}
 
                                 {/* 2. Column Letters (bottom right, bottom-most row) */}
                                 {rowIndex === BOARD_ROWS - 1 && (
-                                    <div className="absolute bottom-0 right-0 p-0.5 text-xs text-gray-600 font-sans z-10">
+                                    <div
+                                        className="absolute bottom-0 right-0 p-0.5 text-gray-600 font-sans z-10"
+                                        style={{ fontSize: `calc(${SQUARE_SIZE_CSS} * 0.22)` }}
+                                    >
                                         {String.fromCharCode(97 + colIndex)}
                                     </div>
                                 )}
@@ -700,7 +753,7 @@ const performBotMove = useCallback(async (currentGame) => {
                     <div
                       className="flex flex-col space-y-2 p-2 bg-gray-800 bg-opacity-90 rounded-r-xl shadow-xl"
                       style={{
-                        marginLeft: `${promotionSquare.col * SQUARE_SIZE_REM}rem`,
+                        marginLeft: `calc(${SQUARE_SIZE_CSS} * ${promotionSquare.col})`,
                         justifyContent: promotionSquare.color === 'w' ? 'flex-start' : 'flex-end',
                         height: '100%',
                       }}
@@ -730,10 +783,11 @@ const performBotMove = useCallback(async (currentGame) => {
                 {/* Draggable Piece "Ghost" */}
                 <div
                     ref={draggablePieceRef}
-                    className={`absolute flex items-center justify-center text-xl font-bold z-50 pointer-events-none`}
+                    className={`absolute flex items-center justify-center font-bold z-50 pointer-events-none`}
                     style={{
-                        width: `${SQUARE_SIZE_REM}rem`,
-                        height: `${SQUARE_SIZE_REM}rem`,
+                        width: SQUARE_SIZE_CSS,
+                        height: SQUARE_SIZE_CSS,
+                        fontSize: `calc(${SQUARE_SIZE_CSS} * 0.55)`,
                         visibility: isDragging && selectedPiece ? 'visible' : 'hidden',
                         left: '0px',
                         top: '0px',
@@ -758,10 +812,10 @@ const performBotMove = useCallback(async (currentGame) => {
                 </div>
             </div>
         </div>
-        <div className="mt-6 flex space-x-4">
+        <div className="mt-3 sm:mt-6 flex flex-wrap justify-center gap-2 sm:gap-4 sm:space-x-0">
           <button
             onClick={handleRestartGame}
-            className="px-6 py-3 bg-blue-600 text-white font-bold rounded-md shadow-lg
+            className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-blue-600 text-white font-bold rounded-md shadow-lg
                        hover:bg-blue-700 transition duration-300 ease-in-out
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75"
             aria-label="Restart Game"
@@ -771,7 +825,7 @@ const performBotMove = useCallback(async (currentGame) => {
           <button
             onClick={handleBotMove}
             disabled={isBotThinking || currentMoveIndex !== boardHistory.length - 1}
-            className="px-6 py-3 bg-purple-600 text-white font-bold rounded-md shadow-lg
+            className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-purple-600 text-white font-bold rounded-md shadow-lg
                        hover:bg-purple-700 transition duration-300 ease-in-out
                        focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75
                        disabled:bg-gray-500 disabled:cursor-not-allowed"
@@ -782,7 +836,7 @@ const performBotMove = useCallback(async (currentGame) => {
           <button
             onClick={handleSelfPlay}
             disabled={isBotThinking || game.isGameOverFlag}
-            className="px-6 py-3 bg-green-600 text-white font-bold rounded-md shadow-lg
+            className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-green-600 text-white font-bold rounded-md shadow-lg
                       hover:bg-green-700 transition duration-300 ease-in-out
                       focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75
                       disabled:bg-gray-500 disabled:cursor-not-allowed"
@@ -792,7 +846,7 @@ const performBotMove = useCallback(async (currentGame) => {
           </button>
           <button
             onClick={() => { selfPlayActive.current = false; }}
-            className="px-6 py-3 bg-red-600 text-white font-bold rounded-md shadow-lg
+            className="px-3 py-1.5 text-sm sm:px-6 sm:py-3 sm:text-base bg-red-600 text-white font-bold rounded-md shadow-lg
                       hover:bg-red-700 transition duration-300 ease-in-out
                       focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75"
             aria-label="Pause Bot vs Bot"
@@ -800,12 +854,12 @@ const performBotMove = useCallback(async (currentGame) => {
             Pause
           </button>
         </div>
-        <p className="text-gray-400 mt-6 text-sm">
-          This is a custom chess-like interface with draggable pieces and simplified game logic. It now attempts to implement full stalemate rules conceptually. For a robust and comprehensive chess engine, using a dedicated library like chess.js is highly recommended.
+        <p className="text-gray-400 mt-3 sm:mt-6 text-xs sm:text-sm text-center max-w-xs sm:max-w-none">
+          Two different armies. One battlefield.
         </p>
       </div>
       
-      {/* Move History Sidebar - NEWLY ADDED */}
+      {/* Move History Sidebar - relative/stacked below on mobile, absolute sidebar on larger screens */}
       <MoveHistory 
         boardHistory={boardHistory} 
         currentMoveIndex={currentMoveIndex}
