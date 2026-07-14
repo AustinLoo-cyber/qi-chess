@@ -735,18 +735,27 @@ const performBotMove = useCallback(async (currentGame) => {
 
                         let palaceBorderClasses = '';
                         if (isEastPalace) {
-                            // Apply borders only to the outer edges of the palace
+                            // Apply borders only to the outer edges of the palace. CSS
+                            // border-top/bottom/left/right are always visual, not tied to
+                            // the underlying data — so when the board is flipped, the
+                            // model's top/bottom and left/right need to swap to still land
+                            // on the correct (outward-facing) visual edge.
+                            const topClass = boardFlipped ? 'border-b-[6px]' : 'border-t-[6px]';
+                            const bottomClass = boardFlipped ? 'border-t-[6px]' : 'border-b-[6px]';
+                            const leftClass = boardFlipped ? 'border-r-[6px]' : 'border-l-[6px]';
+                            const rightClass = boardFlipped ? 'border-l-[6px]' : 'border-r-[6px]';
+
                             if (rowIndex === eastPalaceMinRow) {
-                                palaceBorderClasses += ' border-t-[6px] border-black'; // Thicker border
+                                palaceBorderClasses += ` ${topClass} border-black`; // Thicker border
                             }
                             if (rowIndex === eastPalaceMaxRow) {
-                                palaceBorderClasses += ' border-b-[6px] border-black'; // Thicker border
+                                palaceBorderClasses += ` ${bottomClass} border-black`; // Thicker border
                             }
                             if (colIndex === eastPalaceMinCol) {
-                                palaceBorderClasses += ' border-l-[6px] border-black'; // Thicker border
+                                palaceBorderClasses += ` ${leftClass} border-black`; // Thicker border
                             }
                             if (colIndex === eastPalaceMaxCol) {
-                                palaceBorderClasses += ' border-r-[6px] border-black'; // Thicker border
+                                palaceBorderClasses += ` ${rightClass} border-black`; // Thicker border
                             }
                         }
 
