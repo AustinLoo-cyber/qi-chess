@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ensureSignedIn } from "./firebase";
-import { findOrCreateQuickMatch, createFriendRoom, joinFriendRoom, listenToRoom } from "./multiplayer";
+import { findOrCreateQuickMatch, createFriendRoom, joinFriendRoom, listenToRoom, withTimeout } from "./multiplayer";
 
 // Modal for starting an online game. Handles three internal screens:
 // 'choice'   - Quick Match vs Play a Friend buttons
@@ -18,20 +18,31 @@ export default function PlayOnlineModal({ onClose, onMatched }) {
   // Once matched (as either color), listen for the room becoming 'active'
   // (i.e. an opponent has joined) before handing off to the parent.
   const waitForOpponentThenHandOff = (roomId, color, uid) => {
-    const unsubscribe = listenToRoom(roomId, (data) => {
-      if (data.status === "active" && data.players.white && data.players.black) {
-        unsubscribe();
-        onMatched(roomId, color, uid);
+    const unsubscribe = listenToRoom(
+      roomId,
+      (data) => {
+        if (data.status === "active" && data.players.white && data.players.black) {
+          unsubscribe();
+          onMatched(roomId, color, uid);
+        }
+      },
+      (err) => {
+        setErrorMsg("Lost connection while waiting for an opponent" + (err.code ? ` (${err.code})` : "") + ". Please try again.");
+        setScreen("choice");
       }
-    });
+    );
   };
 
   const handleQuickMatch = async () => {
     setIsBusy(true);
     setErrorMsg("");
     try {
-      const uid = await ensureSignedIn();
-      const { roomId, color } = await findOrCreateQuickMatch(uid, colorChoice);
+      const uid = await withTimeout(ensureSignedIn(), 10000, "Sign-in timed out. Check your connection and try again.");
+      const { roomId, color } = await withTimeout(
+        findOrCreateQuickMatch(uid, colorChoice),
+        12000,
+        "Matchmaking timed out — this can happen if a browser extension (ad blocker/privacy tool) is blocking the connection. Try again or test in an incognito window."
+      );
       if (color === "b") {
         // We just claimed an existing waiting room, so the game is already active.
         onMatched(roomId, color, uid);
@@ -43,7 +54,7 @@ export default function PlayOnlineModal({ onClose, onMatched }) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg("Something went wrong finding a match. Please try again.");
+      setErrorMsg(err.message || "Something went wrong finding a match. Please try again.");
     } finally {
       setIsBusy(false);
     }
@@ -53,15 +64,19 @@ export default function PlayOnlineModal({ onClose, onMatched }) {
     setIsBusy(true);
     setErrorMsg("");
     try {
-      const uid = await ensureSignedIn();
-      const { roomId, color } = await createFriendRoom(uid, colorChoice);
+      const uid = await withTimeout(ensureSignedIn(), 10000, "Sign-in timed out. Check your connection and try again.");
+      const { roomId, color } = await withTimeout(
+        createFriendRoom(uid, colorChoice),
+        12000,
+        "Creating the room timed out — this can happen if a browser extension (ad blocker/privacy tool) is blocking the connection. Try again or test in an incognito window."
+      );
       setRoomCodeToShow(roomId);
       setWaitingLabel("Share this code with your friend:");
       setScreen("waiting");
       waitForOpponentThenHandOff(roomId, color, uid);
     } catch (err) {
       console.error(err);
-      setErrorMsg("Couldn't create a room. Please try again.");
+      setErrorMsg(err.message || "Couldn't create a room. Please try again.");
     } finally {
       setIsBusy(false);
     }
@@ -72,8 +87,12 @@ export default function PlayOnlineModal({ onClose, onMatched }) {
     setIsBusy(true);
     setErrorMsg("");
     try {
-      const uid = await ensureSignedIn();
-      const { roomId, color } = await joinFriendRoom(uid, joinCodeInput);
+      const uid = await withTimeout(ensureSignedIn(), 10000, "Sign-in timed out. Check your connection and try again.");
+      const { roomId, color } = await withTimeout(
+        joinFriendRoom(uid, joinCodeInput),
+        12000,
+        "Joining timed out — this can happen if a browser extension (ad blocker/privacy tool) is blocking the connection. Try again or test in an incognito window."
+      );
       // Joining a friend's room means it's already active immediately.
       onMatched(roomId, color, uid);
     } catch (err) {

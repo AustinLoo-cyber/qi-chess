@@ -22,6 +22,20 @@ import { ChessGame } from "./game";
 
 const ROOMS_COLLECTION = "rooms";
 
+/**
+ * Races a promise against a timeout. If the promise doesn't settle in time,
+ * rejects with a clear error instead of leaving the UI frozen indefinitely —
+ * this matters because getDocs()/runTransaction() can occasionally hang
+ * (never resolve OR reject) on flaky connections or blocked requests,
+ * rather than failing cleanly.
+ */
+export function withTimeout(promise, ms = 12000, message = "This is taking too long — check your connection and try again.") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
 // Firestore does not support arrays-of-arrays (a "nested array"), and your
 // board is exactly that — rows of columns. These helpers flatten a board to
 // a JSON string for storage, and parse it back on the way out. boardHistory
@@ -194,18 +208,30 @@ async function tryClaimOpenSlot(roomId, uid, expectedOpenColor) {
 /**
  * Subscribes to real-time updates for a room. Calls onUpdate(data) every
  * time the room document changes (opponent moves, opponent joins, etc).
+ * onError(err) is called if the subscription itself fails — e.g. a security
+ * rules denial or a connection problem. Without this second callback,
+ * onSnapshot fails completely silently (no console output at all), which is
+ * exactly the kind of "frozen with zero errors" symptom that's very hard to
+ * debug — so always pass onError from the caller.
  * NOTE: data.board and data.boardHistory come back as JSON strings (see
  * deserializeBoard/deserializeBoardHistory above) — deserialize them
  * before using them as actual board arrays.
  * Returns an unsubscribe function — call it when leaving the room/unmounting.
  */
-export function listenToRoom(roomId, onUpdate) {
+export function listenToRoom(roomId, onUpdate, onError) {
   const roomRef = doc(db, ROOMS_COLLECTION, roomId);
-  return onSnapshot(roomRef, (docSnap) => {
-    if (docSnap.exists()) {
-      onUpdate(docSnap.data());
+  return onSnapshot(
+    roomRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        onUpdate(docSnap.data());
+      }
+    },
+    (err) => {
+      console.error("listenToRoom subscription failed:", err);
+      if (onError) onError(err);
     }
-  });
+  );
 }
 
 /**
